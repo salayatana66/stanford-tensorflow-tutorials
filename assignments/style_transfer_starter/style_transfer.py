@@ -65,13 +65,19 @@ def _create_content_loss(p, f):
         the content loss
 
     """
-    pass
+    # parameter s => holds the product of the dimensions
+    s = tf.shape(p)[1]*tf.shape(p)[2]*tf.shape(p)[3]
+    denominator = tf.constant(4,dtype=tf.float64)*tf.pow(s,tf.constant(2.0,dtype=tf.float64))
+    numerator = tf.reduce_sum(tf.pow(tf.subtract(p,f),tf.constant(2.0,dtype=tf.float64)))
+    return tf.div(numerator/denominator)
 
 def _gram_matrix(F, N, M):
     """ Create and return the gram matrix for tensor F
         Hint: you'll first have to reshape F
     """
-    pass
+    # first reshape to M x N tensor
+    f = tf.reshape(F,[M,N])
+    return tf.matmul(f,f,transpose_a=True)
 
 def _single_style_loss(a, g):
     """ Calculate the style loss at a certain layer
@@ -85,7 +91,13 @@ def _single_style_loss(a, g):
         2. we'll use the same coefficient for style loss as in the paper
         3. a and g are feature representation, not gram matrices
     """
-    pass
+    # obtain the gram matrices
+    A = _gram_matrix(a)
+    G = _gram_matrix(g)
+    s = tf.shape(A)[0]*tf.shape(A)[1]
+    denominator = tf.constant(4,dtype=tf.float64)*tf.pow(s,tf.constant(2.0,dtype=tf.float64))
+    numerator = tf.reduce_sum(tf.pow(tf.subtract(A,G),tf.constant(2.0,dtype=tf.float64)))
+    return tf.div(numerator/denominator)
 
 def _create_style_loss(A, model):
     """ Return the total style loss
@@ -95,7 +107,7 @@ def _create_style_loss(A, model):
     
     ###############################
     ## TO DO: return total style loss
-    pass
+    return E[0]+2*E[1]+4*E[2]+8*E[3] +16*E[4]
     ###############################
 
 def _create_losses(model, input_image, content_image, style_image):
@@ -113,7 +125,7 @@ def _create_losses(model, input_image, content_image, style_image):
         ##########################################
         ## TO DO: create total loss. 
         ## Hint: don't forget the content loss and style loss weights
-        
+        total_loss = tf.constant(0.5,dtype=tf.float64)*content_loss + tf.constant(0.5,dtype=tf.float64)*style_loss
         ##########################################
 
     return content_loss, style_loss, total_loss
