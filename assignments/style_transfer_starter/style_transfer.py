@@ -134,7 +134,15 @@ def _create_summary(model):
     """ Create summary ops necessary
         Hint: don't forget to merge them
     """
-    pass
+    with tf.name_scope('summaries'):
+        tf.summary.scalar('total_loss', model['total_loss'])
+        tf.summary.histogram('histogram total_loss', model['total_loss'])
+        tf.summary.scalar('content_loss', model['content_loss'])
+        tf.summary.histogram('histogram content_loss', model['content_loss'])
+        tf.summary.scalar('style_loss', model['style_loss'])
+        tf.summary.histogram('histogram style_loss', model['style_loss'])
+        summary_op = tf.summary.merge_all()
+    return summary_op
 
 def train(model, generated_image, initial_image):
     """ Train your model.
@@ -148,6 +156,9 @@ def train(model, generated_image, initial_image):
         ## 1. initialize your variables
         ## 2. create writer to write your graph
         ###############################
+        sess.run(tf.global_variables_initializer())
+        # to visualize using TensorBoard
+        writer = tf.summary.FileWriter('./graphs/style_transferer', sess.graph)
         sess.run(generated_image.assign(initial_image))
         ckpt = tf.train.get_checkpoint_state(os.path.dirname('checkpoints/checkpoint'))
         if ckpt and ckpt.model_checkpoint_path:
@@ -167,6 +178,7 @@ def train(model, generated_image, initial_image):
                 ## TO DO: obtain generated image and loss
 
                 ###############################
+                gen_image, total_loss = sess.run([generated_image,total_loss])
                 gen_image = gen_image + MEAN_PIXELS
                 writer.add_summary(summary, global_step=index)
                 print('Step {}\n   Sum: {:5.1f}'.format(index + 1, np.sum(gen_image)))
@@ -203,6 +215,8 @@ def main():
     ## TO DO: create optimizer
     ## model['optimizer'] = ...
     ###############################
+    model['optimizer'] = tf.train.AdamOptimizer(1e-3).minimize(total_loss, 
+                                        global_step=global_step)
     model['summary_op'] = _create_summary(model)
 
     initial_image = utils.generate_noise_image(content_image, IMAGE_HEIGHT, IMAGE_WIDTH, NOISE_RATIO)
