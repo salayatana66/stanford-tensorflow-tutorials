@@ -1,6 +1,8 @@
 *.SUNet
 *.pyc
 
+.DS_STORE
+*.mat
 
 examples/checkpoints/*
 

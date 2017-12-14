@@ -1,3 +1,5 @@
+#!/usr/bin/env python
+
 """ An implementation of the paper "A Neural Algorithm of Artistic Style"
 by Gatys et al. in TensorFlow.
 
@@ -19,13 +21,16 @@ import vgg_model
 import utils
 
 # parameters to manage experiments
-STYLE = 'guernica'
+STYLE = 'starry_night'
 CONTENT = 'deadpool'
 STYLE_IMAGE = 'styles/' + STYLE + '.jpg'
 CONTENT_IMAGE = 'content/' + CONTENT + '.jpg'
 IMAGE_HEIGHT = 250
 IMAGE_WIDTH = 333
 NOISE_RATIO = 0.6 # percentage of weight of the noise for intermixing with the content image
+
+CONTENT_WEIGHT = 0.01
+STYLE_WEIGHT = 1
 
 # Layers used for style features. You can change this.
 STYLE_LAYERS = ['conv1_1', 'conv2_1', 'conv3_1', 'conv4_1', 'conv5_1']
@@ -36,8 +41,6 @@ CONTENT_LAYER = 'conv4_2'
 
 ITERS = 300
 LR = 2.0
-
-SAVE_EVERY = 20
 
 MEAN_PIXELS = np.array([123.68, 116.779, 103.939]).reshape((1,1,1,3))
 """ MEAN_PIXELS is defined according to description on their github:
@@ -65,19 +68,14 @@ def _create_content_loss(p, f):
         the content loss
 
     """
-    # parameter s => holds the product of the dimensions
-    s = tf.shape(p)[1]*tf.shape(p)[2]*tf.shape(p)[3]
-    denominator = tf.constant(4,dtype=tf.float64)*tf.pow(s,tf.constant(2.0,dtype=tf.float64))
-    numerator = tf.reduce_sum(tf.pow(tf.subtract(p,f),tf.constant(2.0,dtype=tf.float64)))
-    return tf.div(numerator/denominator)
+    return tf.reduce_sum((f - p) ** 2) / (4.0 * p.size)
 
 def _gram_matrix(F, N, M):
     """ Create and return the gram matrix for tensor F
         Hint: you'll first have to reshape F
     """
-    # first reshape to M x N tensor
-    f = tf.reshape(F,[M,N])
-    return tf.matmul(f,f,transpose_a=True)
+    F = tf.reshape(F, (M, N))
+    return tf.matmul(tf.transpose(F), F)
 
 def _single_style_loss(a, g):
     """ Calculate the style loss at a certain layer
@@ -91,13 +89,11 @@ def _single_style_loss(a, g):
         2. we'll use the same coefficient for style loss as in the paper
         3. a and g are feature representation, not gram matrices
     """
-    # obtain the gram matrices
-    A = _gram_matrix(a)
-    G = _gram_matrix(g)
-    s = tf.shape(A)[0]*tf.shape(A)[1]
-    denominator = tf.constant(4,dtype=tf.float64)*tf.pow(s,tf.constant(2.0,dtype=tf.float64))
-    numerator = tf.reduce_sum(tf.pow(tf.subtract(A,G),tf.constant(2.0,dtype=tf.float64)))
-    return tf.div(numerator/denominator)
+    N = a.shape[3] # number of filters
+    M = a.shape[1] * a.shape[2] # height times width of the feature map
+    A = _gram_matrix(a, N, M)
+    G = _gram_matrix(g, N, M)
+    return tf.reduce_sum((G - A) ** 2 / ((2 * N * M) ** 2))
 
 def _create_style_loss(A, model):
     """ Return the total style loss
@@ -107,7 +103,7 @@ def _create_style_loss(A, model):
     
     ###############################
     ## TO DO: return total style loss
-    return E[0]+2*E[1]+4*E[2]+8*E[3] +16*E[4]
+    return sum([W[i] * E[i] for i in range(n_layers)])
     ###############################
 
 def _create_losses(model, input_image, content_image, style_image):
@@ -125,7 +121,7 @@ def _create_losses(model, input_image, content_image, style_image):
         ##########################################
         ## TO DO: create total loss. 
         ## Hint: don't forget the content loss and style loss weights
-        total_loss = tf.constant(0.5,dtype=tf.float64)*content_loss + tf.constant(0.5,dtype=tf.float64)*style_loss
+        total_loss = CONTENT_WEIGHT * content_loss + STYLE_WEIGHT * style_loss
         ##########################################
 
     return content_loss, style_loss, total_loss
@@ -135,14 +131,13 @@ def _create_summary(model):
         Hint: don't forget to merge them
     """
     with tf.name_scope('summaries'):
-        tf.summary.scalar('total_loss', model['total_loss'])
-        tf.summary.histogram('histogram total_loss', model['total_loss'])
-        tf.summary.scalar('content_loss', model['content_loss'])
-        tf.summary.histogram('histogram content_loss', model['content_loss'])
-        tf.summary.scalar('style_loss', model['style_loss'])
-        tf.summary.histogram('histogram style_loss', model['style_loss'])
-        summary_op = tf.summary.merge_all()
-    return summary_op
+        tf.summary.scalar('content loss', model['content_loss'])
+        tf.summary.scalar('style loss', model['style_loss'])
+        tf.summary.scalar('total loss', model['total_loss'])
+        tf.summary.histogram('histogram content loss', model['content_loss'])
+        tf.summary.histogram('histogram style loss', model['style_loss'])
+        tf.summary.histogram('histogram total loss', model['total_loss'])
+        return tf.summary.merge_all()
 
 def train(model, generated_image, initial_image):
     """ Train your model.
@@ -155,14 +150,14 @@ def train(model, generated_image, initial_image):
         ## TO DO: 
         ## 1. initialize your variables
         ## 2. create writer to write your graph
-        ###############################
+        saver = tf.train.Saver()
         sess.run(tf.global_variables_initializer())
-        # to visualize using TensorBoard
-        writer = tf.summary.FileWriter('./graphs/style_transferer', sess.graph)
+        writer = tf.summary.FileWriter('graphs', sess.graph)
+        ###############################
         sess.run(generated_image.assign(initial_image))
         ckpt = tf.train.get_checkpoint_state(os.path.dirname('checkpoints/checkpoint'))
-        if ckpt and ckpt.model_checkpoint_path:
-            saver.restore(sess, ckpt.model_checkpoint_path)
+        #if ckpt and ckpt.model_checkpoint_path:
+            #saver.restore(sess, ckpt.model_checkpoint_path)
         initial_step = model['global_step'].eval()
         
         start_time = time.time()
@@ -176,11 +171,12 @@ def train(model, generated_image, initial_image):
             if (index + 1) % skip_step == 0:
                 ###############################
                 ## TO DO: obtain generated image and loss
+                gen_image, total_loss, summary = sess.run([generated_image, model['total_loss'], 
+                                                             model['summary_op']])
 
                 ###############################
-                gen_image, total_loss = sess.run([generated_image,total_loss])
                 gen_image = gen_image + MEAN_PIXELS
-                writer.add_summary(summary, global_step=index)
+                #writer.add_summary(summary, global_step=index)
                 print('Step {}\n   Sum: {:5.1f}'.format(index + 1, np.sum(gen_image)))
                 print('   Loss: {:5.1f}'.format(total_loss))
                 print('   Time: {}'.format(time.time() - start_time))
@@ -189,8 +185,8 @@ def train(model, generated_image, initial_image):
                 filename = 'outputs/%d.png' % (index)
                 utils.save_image(filename, gen_image)
 
-                if (index + 1) % SAVE_EVERY == 0:
-                    saver.save(sess, 'checkpoints/style_transfer', index)
+                #if (index + 1) % 20 == 0:
+                    #saver.save(sess, 'checkpoints/style_transfer', index)
 
 def main():
     with tf.variable_scope('input') as scope:
@@ -203,7 +199,7 @@ def main():
     utils.make_dir('outputs')
     model = vgg_model.load_vgg(VGG_MODEL, input_image)
     model['global_step'] = tf.Variable(0, dtype=tf.int32, trainable=False, name='global_step')
-    
+
     content_image = utils.get_resized_image(CONTENT_IMAGE, IMAGE_HEIGHT, IMAGE_WIDTH)
     content_image = content_image - MEAN_PIXELS
     style_image = utils.get_resized_image(STYLE_IMAGE, IMAGE_HEIGHT, IMAGE_WIDTH)
@@ -213,10 +209,9 @@ def main():
                                                     input_image, content_image, style_image)
     ###############################
     ## TO DO: create optimizer
-    ## model['optimizer'] = ...
+    model['optimizer'] = tf.train.AdamOptimizer(LR).minimize(model['total_loss'], 
+                                                            global_step=model['global_step'])
     ###############################
-    model['optimizer'] = tf.train.AdamOptimizer(1e-3).minimize(total_loss, 
-                                        global_step=global_step)
     model['summary_op'] = _create_summary(model)
 
     initial_image = utils.generate_noise_image(content_image, IMAGE_HEIGHT, IMAGE_WIDTH, NOISE_RATIO)
